@@ -1,0 +1,6 @@
+{
+  "_readme": "Hand-maintained figures for national agencies without usable APIs (NBS China via stats.gov.cn releases, Rosstat via rosstat.gov.ru). Shape: metricKey -> ISO3 -> {value, year, src}. Example: \"unemp\": {\"CHN\": {\"value\": 5.1, \"year\": \"2026-07\", \"src\": \"NBS (manual snapshot)\"}}. The pipeline's national source merges these only where no live adapter provides data. Always set src so the card shows where the number came from, and year so staleness is visible.",
+  "unemp": {},
+  "lfpr": {},
+  "infl": {}
+}

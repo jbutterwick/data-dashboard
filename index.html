@@ -4,17 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>State of the Nation</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>State of the Nation</h1>
+  <h1>STATE/NATION</h1>
+  <nav class="views" aria-label="View">
+    <button data-v="dash" aria-selected="true">Dashboard</button>
+    <button data-v="rank" aria-selected="false">Rankings</button>
+  </nav>
   <select id="country" aria-label="Country"></select>
   <select id="compare" aria-label="Compare with"></select>
+  <span id="scorechip" class="scorechip"></span>
   <details id="settings"><summary>⚙</summary><div id="folders"></div></details>
 </header>
+<section class="mast">
+  <div class="eyebrow">State of the Nation</div>
+  <h2 id="cname"></h2>
+  <p class="vsline" id="vsline"></p>
+  <div class="rateband" id="rateband" hidden>
+    <div class="overall" id="overall"></div>
+    <div class="pillars" id="pillars"></div>
+  </div>
+</section>
 <main id="grid"></main>
-<footer>Every card shows its source and data year · drag to rearrange · hover a card and ⤢ to resize · ⚙ for metrics, themes, import/export</footer>
+<section id="rankview" class="rankview" hidden>
+  <div class="rankbar">
+    <select id="rkMetric" aria-label="Rank by"></select>
+    <select id="rkDir" aria-label="Direction">
+      <option value="best">best first</option>
+      <option value="worst">worst first</option>
+    </select>
+    <input id="rkFilter" type="search" placeholder="filter countries…" aria-label="Filter countries">
+    <span id="rkMeta" class="rkmeta"></span>
+  </div>
+  <div id="rkTable"></div>
+</section>
+<footer>
+  <span class="u">—</span> CHARTS ARE FULL SOURCE HISTORY, 1990 ON · RANK STRIP: TEN SQUARES = ALL RANKED NATIONS, <span class="u">FILLED</span> = SHARE RANKING WORSE ·
+  <span class="sw">⇄</span> CHIP SWITCHES SOURCE (NATIONAL → FRED → EUROSTAT → WORLD BANK) · CLICK A CARD TO FLIP IT — EXACT DATA, SOURCE ENDPOINT AND FORMULA · DRAG TO REARRANGE · ⤢ RESIZES · ⚙ METRICS, THEMES, IMPORT/EXPORT
+</footer>
 <script src="app.js"></script>
 </body>
 </html>

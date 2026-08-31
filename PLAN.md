@@ -212,3 +212,39 @@ country-by-country as demand appears rather than up front.
 - Numbeo scraping (ToS + fragile), EIU Democracy Index (licensing),
   absolute median home prices (no source), any framework/bundler/database
   (nothing above needs one).
+
+## Phase 7 — visual redesign + working-class rating (shipped)
+
+**Status: shipped.** Design iterated as a standalone mockup (Console × Isotype
+hybrid, Catppuccin), then ported into the app:
+
+- **Look**: Catppuccin role tokens in `style.css` (mocha default, latte light);
+  themes are one redefined token block each. Jost for display, IBM Plex Mono
+  for data. Console topbar, Isotype masthead, category sections with accent
+  bars. Custom accent picker recolors charts and unit squares via `--accent`.
+- **Cards are chart-first**: full source history since 1990 (area line +
+  compare overlay, from the WB hist the app already fetched), source+year chip
+  is the ⇄ swap button (disabled when only one source), and a rank strip —
+  ten Isotype squares = the whole field, filled = share of nations ranking
+  worse, direction spelled out ("fewest jobless first").
+- **Working-Class Rating** replaced the old 6-input prosperity score
+  (`pipeline/fetch.js` derived step): mean percentile across six pillars from
+  the user's criteria — cost of living (PLI + OECD house), earning opportunity
+  (unemp, LFPR, GDP pc PPP), education (school life expectancy), service costs
+  (OOP health share), health outcomes (HALE, suicide), time kept (hours, days
+  worked). ≥4 pillars required; 192 nations rated (DEU 1st 79.6, USA 35th
+  62.7, HTI last 16.9). Masthead band shows the score, rank, wins/losses,
+  per-pillar strips with inputs + sources, and the methodology line.
+- **Ranks**: derived.json now carries `ranks` (18 metrics, {n, dir, map}) and
+  `rating` ({value, year, rank, p} per ISO3 + `_pillars/_top/_bottom/_n` meta).
+
+Known metric caveats (flagged for review): service-costs pillar uses
+out-of-pocket share, which flatters insurance-heavy systems (USA 84); education
+is quantity (expected years) not quality; cost-of-living's house input covers
+only ~24 OECD countries.
+
+**Rankings view (shipped)**: topbar Dashboard/Rankings toggle. Sort every
+nation by the working-class rating or any of the 18 ranked metrics, best or
+worst first, with a name filter; rows show rank, value, and percentile strip;
+clicking a row opens that country's dashboard. derived.json ranks now store
+[rank, value] pairs to feed it.

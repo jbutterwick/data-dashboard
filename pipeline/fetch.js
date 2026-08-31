@@ -247,7 +247,8 @@ const SOURCES = {
   // reads other sources' output from data/ — keep last in SOURCES so a full run feeds it fresh files
   async derived(){
     const read = f => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', f))); } catch { return null; } };
-    const owid = read('owid.json'), ilo = read('ilo.json'), who = read('who.json');
+    const owid = read('owid.json'), ilo = read('ilo.json'), who = read('who.json'),
+      oecd = read('oecd.json'), co2 = read('co2.json'), warming = read('warming.json'), rsf = read('rsf.json');
 
     // ponytail: days worked = annual hours ÷ (usual weekly hours ÷ 5); labeled as derived in the UI
     const daysworked = {};
@@ -256,31 +257,81 @@ const SOURCES = {
       if (w) daysworked[iso] = { value: h.value / (w.value / 5), year: Math.min(h.year, w.year) };
     }
 
-    // prosperity score: mean percentile rank over harmonized inputs, ≥4 inputs per country
-    const countries = JSON.parse(await getText('https://api.worldbank.org/v2/country?format=json&per_page=400'))[1]
-      .filter(c => c.region.value !== 'Aggregates').map(c => c.id);
+    const countries = new Set(JSON.parse(await getText('https://api.worldbank.org/v2/country?format=json&per_page=400'))[1]
+      .filter(c => c.region.value !== 'Aggregates').map(c => c.id));
     const wbBulk = async ind => {
       const j = JSON.parse(await getText(`https://api.worldbank.org/v2/country/all/indicator/${ind}?format=json&mrnev=1&per_page=500`));
-      return Object.fromEntries(j[1].filter(d => d.value != null).map(d => [d.countryiso3code, d.value]));
+      return Object.fromEntries(j[1].filter(d => d.value != null && countries.has(d.countryiso3code)).map(d => [d.countryiso3code, d.value]));
     };
-    const flat = m => m && Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.value]));
-    const inputs = [
-      [await wbBulk('NY.GDP.PCAP.PP.CD'), 1],   // income level
-      [await wbBulk('SI.POV.UMIC'), -1],         // poverty
-      [await wbBulk('SL.UEM.TOTL.ZS'), -1],      // unemployment
-      [flat(who && who.hale), 1],                // healthy life expectancy
-      [flat(owid && owid.satisfaction), 1],      // life satisfaction
-      [flat(owid && owid.democracy), 1],         // liberal democracy
-    ].filter(([m]) => m);
+    const flat = m => m && Object.fromEntries(Object.entries(m).filter(([k]) => countries.has(k)).map(([k, v]) => [k, v.value]));
+
+    // iso -> value maps for everything rankable (WB bulks + files already on disk)
+    const vals = {
+      unemp: await wbBulk('SL.UEM.TOTL.ZS'), lfpr: await wbBulk('SL.TLF.CACT.ZS'),
+      gdppc: await wbBulk('NY.GDP.PCAP.PP.CD'), pli: await wbBulk('PA.NUS.PRVT.PLI'),
+      school: await wbBulk('SE.SCH.LIFE'), oop: await wbBulk('SH.XPD.OOPC.CH.ZS'),
+      house: flat(oecd && oecd.house), hale: flat(who && who.hale), suicide: flat(who && who.suicide),
+      hours: flat(owid && owid.hours), happy: flat(owid && owid.satisfaction),
+      vdem: flat(owid && owid.democracy), cpi: flat(owid && owid.cpi), press: flat(rsf && rsf.press),
+      co2: flat(co2 && co2.co2pc), warm: flat(warming && warming.warming),
+      days: Object.fromEntries(Object.entries(daysworked).filter(([k]) => countries.has(k)).map(([k, v]) => [k, v.value])),
+      cba: flat(ilo && ilo.bargain),
+    };
+    const pct = (key, dir) => { // iso -> percentile 0..100, 100 = best for the working class
+      const e = Object.entries(vals[key] || {}).filter(([, v]) => v != null && isFinite(v))
+        .sort((a, b) => dir === 'lo' ? b[1] - a[1] : a[1] - b[1]); // worst first
+      const p = {}; e.forEach(([iso], i) => p[iso] = i / (e.length - 1) * 100); return p;
+    };
+
+    // per-metric ranks for the cards' rank strips: {n, dir, map:{ISO: rank}}
+    const RANKED = { unemp:'lo', lfpr:'hi', gdppc:'hi', pli:'lo', oop:'lo', house:'lo',
+      hale:'hi', suicide:'lo', hours:'lo', happy:'hi', vdem:'hi', cpi:'hi', press:'hi',
+      co2:'lo', warm:'lo', days:'lo', cba:'hi', school:'hi' };
     const ranks = {};
-    for (const [m, dir] of inputs){
-      const have = countries.filter(c => m[c] != null).sort((a, b) => (m[a] - m[b]) * dir);
-      have.forEach((c, i) => (ranks[c] = ranks[c] || []).push(i / (have.length - 1) * 100));
+    for (const [key, dir] of Object.entries(RANKED)){
+      const e = Object.entries(vals[key] || {}).filter(([, v]) => v != null && isFinite(v))
+        .sort((a, b) => dir === 'lo' ? a[1] - b[1] : b[1] - a[1]); // best first
+      if (e.length < 2) continue;
+      ranks[key] = { n: e.length, dir, // map: ISO3 -> [rank, value] so list views can show both
+        map: Object.fromEntries(e.map(([iso, v], i) => [iso, [i + 1, +Number(v).toPrecision(5)]])) };
     }
-    const score = {}, year = new Date().getFullYear();
-    for (const [c, rs] of Object.entries(ranks))
-      if (rs.length >= 4) score[c] = { value: rs.reduce((a, b) => a + b) / rs.length, year };
-    return { daysworked, score };
+
+    // working-class rating: mean percentile across six pillars, each the mean percentile of its inputs
+    const PILLARS = [
+      ['col', 'Cost of living', 'price level · home price vs income', 'WB · OECD', [['pli','lo'], ['house','lo']]],
+      ['earn', 'Earning opportunity', 'jobs · participation · output per person', 'WB', [['unemp','lo'], ['lfpr','hi'], ['gdppc','hi']]],
+      ['edu', 'Education', 'expected years in school', 'WB', [['school','hi']]],
+      ['svc', 'Service costs', 'out-of-pocket share of health spending', 'WHO via WB', [['oop','lo']]],
+      ['health', 'Health outcomes', 'healthy life expectancy · suicide', 'WHO', [['hale','hi'], ['suicide','lo']]],
+      ['time', 'Time kept', 'hours and days worked per year', 'OWID · derived', [['hours','lo'], ['days','lo']]],
+    ];
+    const pillarPct = {};
+    for (const [id, , , , inputs] of PILLARS){
+      const pcts = inputs.map(([k, dir]) => pct(k, dir));
+      pillarPct[id] = {};
+      for (const iso of new Set(pcts.flatMap(p => Object.keys(p)))){
+        const have = pcts.map(p => p[iso]).filter(v => v != null);
+        if (have.length) pillarPct[id][iso] = have.reduce((a, b) => a + b) / have.length;
+      }
+    }
+    const scored = [];
+    for (const iso of countries){
+      const ps = PILLARS.map(([id]) => pillarPct[id][iso]).filter(v => v != null);
+      if (ps.length >= 4) scored.push([iso, ps.reduce((a, b) => a + b) / ps.length]); // ponytail: <4 pillars = unrated
+    }
+    scored.sort((a, b) => b[1] - a[1]);
+    const rating = {
+      _pillars: PILLARS.map(([id, name, note, srcs]) => ({ id, name, note, srcs })),
+      _top: scored.slice(0, 3).map(([i, s]) => [i, +s.toFixed(1)]),
+      _bottom: [scored.at(-1)[0], +scored.at(-1)[1].toFixed(1)], _n: scored.length,
+    };
+    const year = new Date().getFullYear();
+    scored.forEach(([iso, s], i) => {
+      const p = {};
+      for (const [id] of PILLARS) if (pillarPct[id][iso] != null) p[id] = +pillarPct[id][iso].toFixed(1);
+      rating[iso] = { value: +s.toFixed(1), year, rank: i + 1, p };
+    });
+    return { daysworked, ranks, rating };
   },
 };
 

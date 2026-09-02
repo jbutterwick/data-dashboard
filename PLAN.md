@@ -248,3 +248,137 @@ nation by the working-class rating or any of the 18 ranked metrics, best or
 worst first, with a name filter; rows show rank, value, and percentile strip;
 clicking a row opens that country's dashboard. derived.json ranks now store
 [rank, value] pairs to feed it.
+
+**Climate expansion + country outlines (shipped)**: four new Climate & Energy
+cards from datasets the pipeline already downloads — GHG per capita (Jones et
+al. via OWID), cumulative CO₂ since 1750 (Global Carbon Project), renewable
+electricity share (Ember/EI), energy use per person (Energy Institute); first
+three ranked (21 ranked metrics total, all in the Rankings view). New
+`outlines` pipeline source quantizes Natural Earth 50m country geometry to
+per-country integer grids (data/outlines.json, ~700KB, 242 countries;
+antimeridian shift, far-territory filter keeps Alaska/Hawaii but drops
+France's Réunion); masthead draws it as a thin accent-line SVG.
+
+**History + freshness batch (shipped)**: pipeline `pack()` keeps full per-year
+series (1990+) for every file-backed source, so WHO/OWID/OECD/ILO/climate
+cards now chart like WB ones; days-worked is derived per matched year (moved
+CAN 249→245, USA →237 — cross-year mixing removed; DEU→DNK swap atop the
+rating followed). derived.json carries `_date` + `_prev` (last run's ranks) —
+masthead, cards and rankings show ↑/↓ movement since the previous pipeline
+run; same-day reruns keep the same baseline. 24h localStorage TTL cache
+(`cached()`) over WB/Eurostat calls for instant repeat loads; Jost + IBM Plex
+Mono vendored into fonts/ (latin, OFL) — no Google Fonts dependency. Themes:
+frappé + macchiato token blocks. Compare country draws a small --cmp outline
+ghost beside the main one (own scale, not overlaid). Chips turn yellow when
+the shown data is 5+ years old; masthead notes ranked-metric coverage and the
+data date.
+
+**National adapters round 2 (shipped)**: INSEE France (ILO unemployment, SA,
+BDM série 001688527), SSB Norway (LFS monthly SA, table 13760: unemployment +
+participation 15-74), Istat Italy (monthly LFS SA via SDMX; editions —
+latest reference month wins; unemp 15-74, activity 15-64 which is Istat's
+headline basis, vs WB's 15+). All keyless and probed live. First-hand
+coverage now: CAN GBR AUS BRA FRA NOR ITA (+ USA behind FRED key). Found
+needing registration (blocked on user): Destatis (guest access dead),
+e-Stat Japan, KOSIS Korea.
+
+**National adapters round 3 — "get them all" (shipped)**: nine new keyless
+first-hand adapters, every endpoint probed live before shipping. Germany
+6.4% (BA registered rate SA, via Bundesbank SDMX — Destatis guest is dead);
+Sweden SCB (LFS monthly SA 15-74, unemp+lfpr); Finland StatFin (LFS monthly
+SA unemp); Denmark DST AUS08 (registered unemployed % SA — DK's headline,
+not LFS); Netherlands CBS 85224NED (quarterly SA unemp + bruto participation;
+endpoint ignores $orderby, sorted client-side); Spain INE Tempus3 (EPA
+quarterly, tables 65219/65081); Ireland CSO PxStat MUM01 (monthly SA 15-74);
+Singapore MOM via SingStat M182342 (quarterly SA); Argentina INDEC via
+datos.gob.ar 45.2_ECTDT_0_T_33 (EPH quarterly, fraction ×100); Philippines
+PSA openstat (LFS monthly; their json-stat2 endpoint is broken, classic
+'json' format used). Shared `px`/`latestObs` helpers for the PxWeb/JSON-stat
+family. First-hand unemployment now covers 16 countries.
+Unresolved: Swiss BFS PxWeb rejects all listing calls (Bad Request);
+Israel CBS API open but the catalog tree is Hebrew-only, series ids not yet
+found; registered-rate caveat (DEU/DNK) — ⇄ to World Bank shows the ILO
+harmonized figure.
+
+**Opportunity, free time & third spaces (shipped)**: seven new metrics.
+Work: informal employment share (ILO DF_EMP_NIFL_SEX_RT, 145 ranked, lower
+= more formal jobs); youth NEET now first-hand from ILO (DF_EIP_NEET_SEX_RT,
+new rank, World Bank stays switchable — new `pref:` field defaults a card
+to its first-hand collector); job vacancy rate (Eurostat jvs_a_rate_r2,
+B-S/all sizes/annual avg, 32 European countries, new `eurostat` source);
+effective retirement age (OECD Pensions at a Glance ELMEA — published
+men/women only, we store the mean, formula on the card back, hist to 1990).
+Society: leisure minutes per day + "How the day is spent" bar card (OECD
+Time Use, 35 countries; the flow has no time dimension — survey years
+differ, chip says "latest surveys", no staleness flag possible); third
+spaces per 100k (new `osm` source: live Overpass counts of
+cafe|bar|pub|library|community_centre per country ÷ OWID population;
+monthly refresh window, incremental saves, per-amenity split when a big
+country's combined query times out, de→kumi instance fallback; card back
+warns that OSM completeness varies by country — deliberately no rank, it
+would rank mapping effort). co2.json now also carries OWID population
+for the per-capita division.
+
+**Public investment & food sovereignty (shipped)**: three new metrics, two
+new sources, new Food section. Public investment (% GDP) = general
+government gross fixed capital formation: IMF Investment & Capital Stock
+Dataset via the new api.imf.org SDMX (173 countries, 1960-2019 — the series
+ends there, card back says so) with Eurostat gov_10a_main as the fresh
+switchable source for Europe (the card defaults to it there). Food: FAO
+Suite of Food Security Indicators via bulk zip (their API now demands a
+key; unzip shelled out) — cereal import dependency ratio (FAO's own
+formula, negative = net exporter; USA −20.3, France −71.7, Haiti +82.9)
+and value of food imports over all merchandise exports (Haiti 149%). FAO
+publishes 3-year windows: value keeps the "2021-2023" label, chart points
+sit on middle years, and the stale-chip check now reads a range's END year.
+M49→ISO3 map embedded (generated from Natural Earth, stable codes).
+Probed and rejected: IMF datamapper (no ICSD series), OECD ITF transport
+infrastructure investment (absolute EUR only, no %-GDP unit), FAOSTAT
+API (401 without key).
+
+**Peace & stability pillar (shipped)**: the rating's 7th pillar + a Peace
+card section. Inputs balance a hard event count against a perception index,
+so neither stands alone: UCDP battle-related deaths per 100k (via OWID
+grapher death-rate-in-armed-conflicts; wars, border clashes, one-sided
+violence fought on the country's soil) and WGI Political Stability &
+Absence of Violence (0-100 governance score, WB source=3 database — the
+old PV.EST top-level code is archived). Cards: conflict deaths (ranked),
+political stability (ranked), military spending %GDP (SIPRI via WB,
+unranked — neither direction is unambiguously good for workers).
+Correctness work the zero-heavy metric forced: tiePct() gives tied values
+the mean percentile of their run (140 countries tie at 0 conflict deaths;
+the old formula spread them 0-100 arbitrarily, which would have made the
+score noise); rank maps now share ranks competition-style; the ≥4-pillar
+rating floor became ceil(2/3 of pillars) after 4-of-7 Macao briefly topped
+the list by skipping health/services/time entirely. Leader remains DNK
+74.3; USA moved 34th→40th (peace pillar 54: zero deaths, middling WGI).
+Mast "SIX PILLARS" text is now computed from _pillars.
+
+**Compare-mode pillar clarity (shipped)**: with a compare country selected,
+each rating pillar now colors its score by who wins that pillar (not by
+own best/worst), shows "DNK 69 · +8" diffs, and drops a --cmp tick on the
+ten-cell strip at the compare country's percentile; the overall block adds
+a "LEADS/TRAILS X — WINS w, LOSES l OF n PILLARS" tally.
+
+**Trade dependence & self-sufficiency (shipped)**: new Trade section.
+Trade dependence = (X+M)/GDP (WB NE.TRD.GNFS.ZS, ranked "least
+trade-dependent first" — card back warns it measures exposure, not
+distress; Sudan/Haiti/Venezuela "win" by collapse); net energy imports
+as % of energy use (IEA via WB EG.IMP.CONS.ZS, negative = exporter,
+ranked); current account % GDP (IMF WEO datamapper added to the imf
+source — projections to 2031 are dropped, series clamped to the last
+completed year; unranked, surplus isn't unambiguously pro-worker).
+Probed and dropped: UNCTAD export concentration index — their bulk API
+only serves 7z archives (no CSV variant), unreadable in a zero-dep node
+pipeline; revisit if they add plain formats. Food sovereignty cards from
+the previous batch complete the picture.
+
+**7z dependency + export concentration (shipped)**: user approved a
+pipeline dependency for data access — `brew install sevenzip` (7zz; the
+source also accepts 7za/7z). New `unctad` source reads UNCTAD's
+concentration/diversification bulk (7z-only): export concentration HHI
+0-1 over ~260 product lines, 195 countries, 1995-2025, ranked "most
+diversified first" (POL 0.059 best, SAU 0.51 oil). M49→ISO3 map hoisted
+to module scope, shared by fao and unctad. DATA_MODEL.md added: mermaid
+ER diagram of files, upstream sources, derivations and view-time merge
+(validated by headless render).

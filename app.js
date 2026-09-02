@@ -44,6 +44,40 @@ function chartSVG(hist, cmp){
   return svg + '</svg>';
 }
 
+// thin-line country outline from data/outlines.json ({w, h, r:[flat x,y ints]})
+function outlineSVG(o, size, cls){
+  if (!o || !o.r) return '';
+  let H = size || 120, W = Math.round(H * o.w / o.h);
+  const maxW = (size || 120) * 8 / 3;
+  if (W > maxW){ W = Math.round(maxW); H = Math.round(W * o.h / o.w); }
+  const d = o.r.map(r => {
+    let s = 'M' + r[0] + ' ' + r[1];
+    for (let i = 2; i < r.length; i += 2) s += 'L' + r[i] + ' ' + r[i + 1];
+    return s + 'Z';
+  }).join('');
+  return `<svg viewBox="0 0 ${o.w} ${o.h}" width="${W}" height="${H}" role="img"${cls ? ` class="${cls}"` : ''}><path d="${d}"/></svg>`;
+}
+
+// 24h TTL cache over localStorage so the homepage paints instantly on repeat loads
+// ponytail: TTL only, no background revalidate — the pipeline is weekly anyway
+function cached(key, fetcher, store){
+  store = store || localStorage;
+  let hit = null;
+  try { hit = JSON.parse(store.getItem('c:' + key)); } catch {}
+  if (hit && Date.now() - hit.t < 864e5) return Promise.resolve(hit.v);
+  return fetcher().then(v => {
+    try { store.setItem('c:' + key, JSON.stringify({ t: Date.now(), v })); } catch {} // quota — just skip
+    return v;
+  });
+}
+
+// rank movement vs the previous pipeline run: rank number falling = improvement = ↑
+function rankDelta(prev, cur){
+  if (prev == null || cur == null || prev === cur) return '';
+  const d = prev - cur;
+  return ` <span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
+}
+
 // rank: key into derived.json ranks; note: how to read it ("fewest jobless first")
 var METRICS = [
   {id:'gdppc',  cat:'Economy', name:'GDP per person, PPP',     ind:'NY.GDP.PCAP.PP.CD', fmt:fmtUSD, rank:'gdppc', note:'richest first'},
@@ -56,10 +90,14 @@ var METRICS = [
   {id:'house',  cat:'Economy', name:'Home price vs income (avg=100)', file:'oecd.json', key:'house', src:'OECD', fmt:v => String(Math.round(v)), rank:'house', note:'most affordable first'},
   {id:'medhome', cat:'Economy', name:'Median home price', fred:'medhome', fmt:fmtUSD},
   {id:'bigmac', cat:'Economy', name:'Big Mac price', file:'bigmac.json', key:'bigmac', src:'The Economist', fmt:v => '$' + v.toFixed(2)},
+  {id:'pubinv', cat:'Economy', name:'Public investment', file:'imf.json', key:'pubinv', src:'IMF', euro:'gov_10a_main?na_item=P51G&sector=S13&unit=PC_GDP', fmt:v => v.toFixed(1) + '% GDP', rank:'pubinv', note:'most invested first'},
   {id:'unemp',  cat:'Work',    name:'Unemployment',            ind:'SL.UEM.TOTL.ZS',    fmt:fmtPct, natl:'unemp', fred:'unemp', euro:'une_rt_a?sex=T&age=Y15-74&unit=PC_ACT', rank:'unemp', note:'fewest jobless first'},
   {id:'lfpr',   cat:'Work',    name:'Workforce participation', ind:'SL.TLF.CACT.ZS',    fmt:fmtPct, natl:'lfpr', fred:'lfpr', rank:'lfpr', note:'highest share first'},
   {id:'vuln',   cat:'Work',    name:'Vulnerable employment',   ind:'SL.EMP.VULN.ZS',    fmt:fmtPct},
-  {id:'neet',   cat:'Work',    name:'Youth not in work/school', ind:'SL.UEM.NEET.ZS',   fmt:fmtPct},
+  {id:'neet',   cat:'Work',    name:'Youth not in work/school', ind:'SL.UEM.NEET.ZS',   fmt:fmtPct, file:'ilo.json', key:'neet', src:'ILOSTAT', pref:'ILOSTAT', rank:'neet', note:'fewest left out first'},
+  {id:'informal', cat:'Work',  name:'Informal employment', file:'ilo.json', key:'informal', src:'ILOSTAT', fmt:fmtPct, rank:'informal', note:'most formal jobs first'},
+  {id:'jvr',    cat:'Work',    name:'Job vacancy rate', file:'eurostat.json', key:'jvr', src:'Eurostat', fmt:fmtPct, rank:'jvr', note:'most openings first'},
+  {id:'retire', cat:'Work',    name:'Effective retirement age', file:'oecd.json', key:'retire', src:'OECD', fmt:v => v.toFixed(1) + ' yrs'},
   {id:'hours',  cat:'Work',    name:'Annual hours worked', file:'owid.json', key:'hours', src:'PWT via OWID', fmt:v => Math.round(v).toLocaleString('en-US') + ' hrs', rank:'hours', note:'fewest hours first'},
   {id:'days',   cat:'Work',    name:'Days worked per year (derived)', file:'derived.json', key:'daysworked', src:'OWID hours ÷ ILO weekly hours', fmt:v => Math.round(v) + ' days', rank:'days', note:'fewest days first'},
   {id:'cba',    cat:'Work',    name:'Collective bargaining coverage', file:'ilo.json', key:'bargain', src:'ILOSTAT', fmt:fmtPct, rank:'cba', note:'most covered first'},
@@ -72,9 +110,21 @@ var METRICS = [
   {id:'homi',   cat:'Society', name:'Homicide rate',           ind:'VC.IHR.PSRC.P5',    fmt:v => v.toFixed(1) + ' /100k'},
   {id:'net',    cat:'Society', name:'Internet users',          ind:'IT.NET.USER.ZS',    fmt:fmtPct},
   {id:'happy',  cat:'Society', name:'Life satisfaction', file:'owid.json', key:'satisfaction', src:'World Happiness Report via OWID', fmt:v => v.toFixed(1) + ' /10', rank:'happy', note:'happiest first'},
+  {id:'leisure', cat:'Society', name:'Leisure time per day', file:'oecd.json', key:'leisure', src:'OECD Time Use', fmt:v => Math.floor(v / 60) + 'h ' + Math.round(v % 60) + 'm', rank:'leisure', note:'most free time first'},
+  {id:'timeuse', cat:'Society', name:'How the day is spent', file:'oecd.json', key:'timeuse', src:'OECD Time Use', bar:true, colors:'tu'},
+  {id:'third',  cat:'Society', name:'Third spaces per 100k', file:'osm.json', key:'third', src:'OpenStreetMap', fmt:v => fmtNum(v)},
+  {id:'cereal', cat:'Food',    name:'Cereal import dependency', file:'fao.json', key:'cereal', src:'FAO', fmt:v => (v > 0 ? '+' : '') + v.toFixed(1) + '%', rank:'cereal', note:'most self-sufficient first'},
+  {id:'foodimp', cat:'Food',   name:'Food imports vs all exports', file:'fao.json', key:'foodimp', src:'FAO', fmt:fmtPct, rank:'foodimp', note:'lightest food bill first'},
+  {id:'trade',  cat:'Trade',   name:'Trade dependence', ind:'NE.TRD.GNFS.ZS', fmt:v => Math.round(v) + '% GDP', rank:'trade', note:'least trade-dependent first'},
+  {id:'energyimp', cat:'Trade', name:'Net energy imports', ind:'EG.IMP.CONS.ZS', fmt:v => (v > 0 ? '+' : '') + Math.round(v) + '%', rank:'energyimp', note:'most energy self-sufficient first'},
+  {id:'cab',    cat:'Trade',   name:'Current account balance', file:'imf.json', key:'cab', src:'IMF WEO', fmt:v => (v > 0 ? '+' : '') + v.toFixed(1) + '% GDP'},
+  {id:'expconc', cat:'Trade',  name:'Export concentration', file:'unctad.json', key:'expconc', src:'UNCTAD', fmt:v => v.toFixed(3), rank:'expconc', note:'most diversified first'},
   {id:'press',  cat:'Freedom', name:'Press freedom', file:'rsf.json', key:'press', src:'Reporters Without Borders', fmt:v => v.toFixed(1) + ' /100', rank:'press', note:'freest first'},
   {id:'cpi',    cat:'Freedom', name:'Corruption perceptions', file:'owid.json', key:'cpi', src:'Transparency Intl via OWID', fmt:v => Math.round(v) + ' /100', rank:'cpi', note:'cleanest first'},
   {id:'vdem',   cat:'Freedom', name:'Liberal democracy index', file:'owid.json', key:'democracy', src:'V-Dem via OWID', fmt:v => v.toFixed(2) + ' /1', rank:'vdem', note:'freest first'},
+  {id:'confdeaths', cat:'Peace', name:'Conflict deaths', file:'owid.json', key:'confdeaths', src:'UCDP via OWID', fmt:v => (v < 1 && v > 0 ? v.toFixed(2) : v.toFixed(1)) + ' /100k', rank:'confdeaths', note:'fewest first'},
+  {id:'polstab', cat:'Peace', name:'Political stability', ind:'GOV_WGI_PV.SC', fmt:v => Math.round(v) + ' /100', rank:'polstab', note:'most stable first'},
+  {id:'milex',  cat:'Peace',   name:'Military spending', ind:'MS.MIL.XPND.GD.ZS', fmt:v => v.toFixed(1) + '% GDP'},
   {id:'pop',    cat:'People',  name:'Population',              ind:'SP.POP.TOTL',       fmt:fmtNum},
   {id:'popg',   cat:'People',  name:'Population growth',       ind:'SP.POP.GROW',       fmt:fmtPct},
   {id:'mig',    cat:'People',  name:'Net migration',           ind:'SM.POP.NETM',       fmt:fmtNum},
@@ -84,6 +134,10 @@ var METRICS = [
   {id:'forest', cat:'Climate & Energy', name:'Forest area',              ind:'AG.LND.FRST.ZS',       fmt:fmtPct},
   {id:'pm25',   cat:'Climate & Energy', name:'Air pollution (PM2.5)',    ind:'EN.ATM.PM25.MC.M3',    fmt:v => v.toFixed(1) + ' µg/m³'},
   {id:'co2t',   cat:'Climate & Energy', name:'CO₂ total', file:'co2.json', key:'co2', src:'Our World in Data', fmt:v => v >= 1000 ? (v / 1000).toFixed(2) + ' Gt' : Math.round(v) + ' Mt'},
+  {id:'ghg',    cat:'Climate & Energy', name:'Greenhouse gas per capita', file:'co2.json', key:'ghgpc', src:'Jones et al. via OWID', fmt:v => v.toFixed(1) + ' t CO₂e', rank:'ghgpc', note:'cleanest first'},
+  {id:'cumco2', cat:'Climate & Energy', name:'Cumulative CO₂ since 1750', file:'co2.json', key:'cumco2', src:'Global Carbon Project via OWID', fmt:v => v >= 1000 ? (v / 1000).toFixed(1) + ' Gt' : Math.round(v) + ' Mt', rank:'cumco2', note:'least emitted first'},
+  {id:'renewelec', cat:'Climate & Energy', name:'Renewable electricity share', file:'energy.json', key:'renewelec', src:'Ember/EI via OWID', fmt:fmtPct, rank:'renewelec', note:'greenest grid first'},
+  {id:'energypc', cat:'Climate & Energy', name:'Energy use per person', file:'energy.json', key:'energypc', src:'Energy Institute via OWID', fmt:v => fmtNum(v) + ' kWh'},
   {id:'warm',   cat:'Climate & Energy', name:'Temperature anomaly', file:'warming.json', key:'warming', src:'Berkeley Earth via OWID', fmt:v => (v > 0 ? '+' : '') + v.toFixed(2) + ' °C', rank:'warm', note:'least warmed first'},
   {id:'mix',    cat:'Climate & Energy', name:'Energy mix', file:'energy.json', key:'mix', src:'Our World in Data', bar:true},
 ];
@@ -91,8 +145,10 @@ var METRICS = [
 var MIX_COLORS = { coal:'var(--surface0)', oil:'var(--surface2)', gas:'var(--cmp)',
   nuclear:'var(--accent)', hydro:'var(--blue)', wind:'var(--sapphire)', solar:'var(--yellow)',
   biofuel:'var(--green)', other:'var(--teal)' };
+var TU_COLORS = { 'paid work':'var(--surface2)', 'unpaid work':'var(--cmp)',
+  'personal care':'var(--blue)', leisure:'var(--green)', other:'var(--surface0)' };
 
-var THEMES = ['mocha', 'latte'];
+var THEMES = ['mocha', 'macchiato', 'frappe', 'latte'];
 
 if (typeof document !== 'undefined') (function(){
   const $ = id => document.getElementById(id);
@@ -101,8 +157,12 @@ if (typeof document !== 'undefined') (function(){
     JSON.parse(localStorage.getItem('dash') || '{}'));
   if (!THEMES.includes(S.theme)) S.theme = 'mocha'; // pre-catppuccin saved themes
   S.order = mergeOrder(S.order, METRICS.map(m => m.id));
+  // metrics added since the user's last visit start enabled; S.known remembers what they've seen
+  // ponytail: pre-existing saves have no known list — everything unknown enables once, then tracking begins
+  for (const id of METRICS.map(m => m.id)) if (!(S.known || []).includes(id) && !S.enabled.includes(id)) S.enabled.push(id);
+  S.known = METRICS.map(m => m.id);
   const save = () => localStorage.setItem('dash', JSON.stringify(S));
-  const cache = new Map(); // ponytail: per-pageload cache; add a localStorage TTL cache if sources feel slow
+  const cache = new Map(); // per-pageload promise cache over the localStorage TTL layer
   let countryNames = {}; // ISO3 -> display name, filled by loadCountries
 
   function applyTheme(){
@@ -114,7 +174,7 @@ if (typeof document !== 'undefined') (function(){
 
   function wb(ind, country){
     const key = country + ind;
-    if (!cache.has(key)) cache.set(key,
+    if (!cache.has(key)) cache.set(key, cached(key, () =>
       fetch(`https://api.worldbank.org/v2/country/${country}/indicator/${ind}?format=json&per_page=100`)
         .then(r => r.json())
         .then(j => {
@@ -123,7 +183,7 @@ if (typeof document !== 'undefined') (function(){
           return { value: rows[0].value, year: rows[0].date,
                    hist: rows.map(d => [+d.date, d.value]).sort((a, b) => a[0] - b[0]) };
         })
-        .catch(() => null));
+        .catch(() => null)));
     return cache.get(key);
   }
 
@@ -144,7 +204,7 @@ if (typeof document !== 'undefined') (function(){
     const geo = EURO_GEO[iso3];
     if (!geo) return Promise.resolve(null);
     const key = 'eu:' + q + geo;
-    if (!cache.has(key)) cache.set(key,
+    if (!cache.has(key)) cache.set(key, cached(key, () =>
       fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${q}&geo=${geo}&format=JSON&lang=EN&sinceTimePeriod=2015`)
         .then(r => r.json())
         .then(j => {
@@ -155,7 +215,7 @@ if (typeof document !== 'undefined') (function(){
           }
           return null;
         })
-        .catch(() => null));
+        .catch(() => null)));
     return cache.get(key);
   }
 
@@ -171,6 +231,7 @@ if (typeof document !== 'undefined') (function(){
     if (m.ind) m.srcs.push({ label:'World Bank', get: c => wb(m.ind, c) });
     if (m.file) m.srcs.push({ label:m.src, get: c => fileGet(m.file, m.key, c) });
     for (const a of m.alt || []) m.srcs.push({ label:a.src, get: c => fileGet(a.file, a.key, c) });
+    if (m.pref) m.srcs = srcOrder(m.srcs, m.pref); // default to the first-hand collector, others stay switchable
   }
 
   async function resolve(m, country){
@@ -181,37 +242,28 @@ if (typeof document !== 'undefined') (function(){
     return null;
   }
 
-  // isotype unit squares, grouped in fives so they wrap and count cleanly
-  function units(n, px){
+  // ten-cell gauge: outlined track, filled cells = this country's percentile, partial on the boundary
+  function tenStrip(fill){
     const d = document.createElement('div');
-    d.className = 'units';
-    while (n > .08){
-      const g = document.createElement('span'); g.className = 'g';
-      const chunk = Math.min(5, n);
-      for (let i = 0; i < Math.floor(chunk); i++) g.appendChild(document.createElement('i'));
-      const f = chunk - Math.floor(chunk);
-      if (f > .08){ const p = document.createElement('span'); p.className = 'part'; p.style.width = (f * px).toFixed(1) + 'px';
-        p.appendChild(document.createElement('i')); g.appendChild(p); }
-      d.appendChild(g); n -= 5;
+    d.className = 'ten';
+    for (let i = 0; i < 10; i++){
+      const c = document.createElement('i');
+      const f = Math.max(0, Math.min(1, fill - i));
+      if (f >= .95) c.className = 'on';
+      else if (f > .05) c.style.background = `linear-gradient(90deg, var(--unit) ${(f * 100).toFixed(0)}%, var(--surface1) 0)`;
+      d.appendChild(c);
     }
     return d;
   }
-  function tenStrip(fill, px){ // ten squares = the whole field; filled = this country's percentile
-    px = px || 8;
-    const strip = units(Math.max(fill, .09), px);
-    const rest = document.createElement('span'); rest.className = 'g rest';
-    for (let i = Math.ceil(fill); i < 10; i++) rest.appendChild(document.createElement('i'));
-    strip.appendChild(rest);
-    return strip;
-  }
 
-  function energyBar(shares){
+  function energyBar(shares, colors){
+    colors = colors || MIX_COLORS;
     const wrap = document.createElement('div');
     const bar = document.createElement('div');
     bar.className = 'bar';
     const leg = document.createElement('div');
     leg.className = 'mixlegend';
-    for (const [k, color] of Object.entries(MIX_COLORS)){
+    for (const [k, color] of Object.entries(colors)){
       if (!shares[k]) continue;
       const seg = document.createElement('div');
       seg.style.cssText = `width:${shares[k]}%;background:${color}`;
@@ -231,7 +283,7 @@ if (typeof document !== 'undefined') (function(){
     if (!r){ card.style.display = 'none'; return; } // no data for this country from any source
     card.style.display = '';
     const val = card.querySelector('.value');
-    if (m.bar) val.replaceChildren(energyBar(r.d.value));
+    if (m.bar) val.replaceChildren(energyBar(r.d.value, m.colors === 'tu' ? TU_COLORS : MIX_COLORS));
     else val.textContent = m.fmt(r.d.value, r.d);
     let c = null;
     const cmp = card.querySelector('.cmp');
@@ -244,6 +296,8 @@ if (typeof document !== 'undefined') (function(){
     const chip = card.querySelector('.chip');
     chip.textContent = (r.d.src || r.s.label) + ' · ' + r.d.year + (m.srcs.length > 1 ? ' ⇄' : '');
     chip.disabled = m.srcs.length < 2;
+    const yrs = String(r.d.year).match(/\d{4}/g); // "2021-2023" ranges stale by their end year
+    chip.classList.toggle('old', !!yrs && Math.max(...yrs) < new Date().getFullYear() - 4); // stale data flag
     chip.onclick = async () => { // pick the next source that has data for this country
       const i = m.srcs.indexOf(r.s);
       for (let k = 1; k < m.srcs.length; k++){
@@ -264,7 +318,8 @@ if (typeof document !== 'undefined') (function(){
         crank.hidden = false;
         crank.appendChild(tenStrip((rk.n - my) / rk.n * 10));
         const cmpRank = S.compare && rk.map[S.compare] && rk.map[S.compare][0];
-        crank.insertAdjacentHTML('beforeend', `<div class="rtext"><b>${ord(my)}</b> of ${rk.n}` +
+        const pv = j._prev && j._prev.ranks[m.rank] && j._prev.ranks[m.rank][S.country];
+        crank.insertAdjacentHTML('beforeend', `<div class="rtext"><b>${ord(my)}</b> of ${rk.n}${rankDelta(pv, my)}` +
           (cmpRank ? ` · ${S.compare} ${ord(cmpRank)}` : '') + `<small>${m.note}</small></div>`);
       }
     }
@@ -273,9 +328,9 @@ if (typeof document !== 'undefined') (function(){
 
   // card back: the exact data and formula behind the number
   function srcDetail(m, s){
-    if (s.label === 'National') return 'data/national.json — StatCan · ONS · ABS · IBGE adapters + snapshots';
+    if (s.label === 'National') return 'data/national.json — national statistics agency adapters (16 countries) + snapshots; entry names its agency';
     if (s.label === 'FRED') return 'data/fred.json — FRED (BLS/Census series)';
-    if (s.label === 'Eurostat') return 'ec.europa.eu/eurostat api · ' + (typeof m.euro === 'string' ? m.euro : m.euro.q).split('?')[0];
+    if (s.label === 'Eurostat' && m.euro) return 'ec.europa.eu/eurostat api · ' + (typeof m.euro === 'string' ? m.euro : m.euro.q).split('?')[0];
     if (s.label === 'World Bank') return 'api.worldbank.org · indicator ' + m.ind;
     const alt = (m.alt || []).find(a => a.src === s.label);
     return 'data/' + (alt ? alt.file : m.file) + ' · key ' + (alt ? alt.key : m.key) + ' (weekly pipeline)';
@@ -292,8 +347,35 @@ if (typeof document !== 'undefined') (function(){
       L.push('chain: ' + m.srcs.map(s => s === r.s ? `<b>[${s.label}]</b>` : s.label).join(' → ') + ' · ⇄ cycles those with data');
     if (m.id === 'days'){
       const h = await fileGet('owid.json', 'hours', S.country), w = await fileGet('ilo.json', 'weekhours', S.country);
-      if (h && w) L.push(`formula: ${h.value} h/yr (PWT via OWID, ${h.year}) ÷ (${w.value} h/wk (ILO, ${w.year}) ÷ 5) = <b>${(h.value / (w.value / 5)).toFixed(2)}</b>`);
+      if (h && w){ // same-year pair, matching the pipeline's derivation
+        const wh = Object.fromEntries(w.hist || [[w.year, w.value]]);
+        const pair = (h.hist || [[h.year, h.value]]).filter(([y]) => wh[y] != null).at(-1);
+        if (pair) L.push(`formula: ${pair[1]} h/yr (PWT via OWID, ${pair[0]}) ÷ (${wh[pair[0]]} h/wk (ILO, ${pair[0]}) ÷ 5) = <b>${(pair[1] / (wh[pair[0]] / 5)).toFixed(2)}</b>`);
+        else L.push(`formula: ${h.value} h/yr (PWT via OWID, ${h.year}) ÷ (${w.value} h/wk (ILO, ${w.year}) ÷ 5) = <b>${(h.value / (w.value / 5)).toFixed(2)}</b> — no common year, latest of each`);
+      }
     }
+    else if (m.id === 'third') L.push(`formula: ${fmtNum(r.d.n)} cafés + bars + pubs + libraries + community centres tagged in OpenStreetMap ÷ population × 100k — ` +
+      'counts what volunteers have mapped, so well-mapped countries look richer in third spaces than they are relative to poorly-mapped ones');
+    else if (m.id === 'retire') L.push('formula: mean of OECD’s men’s and women’s average effective labour-market exit ages');
+    else if (m.id === 'cereal') L.push('formula: FAO — (cereal imports − exports) ÷ (production + imports − exports), 3-year average; ' +
+      '<b>negative = net exporter</b>; chart points sit on each window’s middle year');
+    else if (m.id === 'foodimp') L.push('formula: FAO — value of food imports ÷ value of all merchandise exports, 3-year average; ' +
+      'how much of a country’s export earnings its food bill would eat; chart points sit on each window’s middle year');
+    else if (m.id === 'trade') L.push('formula: (exports + imports) ÷ GDP — measures exposure, not distress: ' +
+      'small economies run structurally high, big diversified ones low; read alongside the food and energy cards');
+    else if (m.id === 'energyimp') L.push('formula: net energy imports ÷ total energy use (IEA data via WB); ' +
+      '<b>negative = net energy exporter</b>');
+    else if (m.id === 'expconc') L.push('formula: UNCTAD Herfindahl-Hirschman index over ~260 export product lines, 0–1; ' +
+      '1 = a single export product — the higher, the more one commodity shock can hurt every wage in the country');
+    else if (m.id === 'cab') L.push('formula: current account ÷ GDP as published in the IMF World Economic Outlook; ' +
+      'WEO projections are dropped — the card stops at the last completed year');
+    else if (m.id === 'polstab') L.push('formula: WGI “Political Stability &amp; Absence of Violence” — a composite of perception surveys ' +
+      'and expert assessments rescaled to 0–100; it measures how stable observers <i>believe</i> the state is, not events — ' +
+      'the conflict-deaths card is the hard-count check on it');
+    else if (m.id === 'confdeaths') L.push('formula: UCDP battle-related deaths (state, non-state and one-sided violence, best estimate) ' +
+      'in the country ÷ population × 100k — an event count, includes wars and border clashes fought on this soil');
+    else if (m.id === 'pubinv') L.push('formula: general government gross fixed capital formation ÷ GDP, as published; ' +
+      'all public investment (roads, schools, hospitals, networks) — the standard proxy, not infrastructure alone. IMF series ends 2019; ⇄ Eurostat for current European figures');
     else L.push('formula: value as published by the source, no transformation');
     if (m.rank){
       const j = await localData('derived.json');
@@ -337,6 +419,11 @@ if (typeof document !== 'undefined') (function(){
   // masthead: country name + the six-pillar working-class rating with its provenance
   async function renderMast(){
     $('cname').textContent = countryNames[S.country] || S.country;
+    localData('outlines.json').then(j => {
+      const o = (j && j.outline) || {};
+      $('cmap').innerHTML = outlineSVG(o[S.country]) +
+        (S.compare ? outlineSVG(o[S.compare], 78, 'cmpmap') : ''); // compare ghost, own scale
+    });
     $('vsline').innerHTML = 'working-class prosperity' +
       (S.compare ? ` · compared throughout with <b>${countryNames[S.compare] || S.compare}</b>` : '') +
       ' · ranked against every nation we have data for';
@@ -351,24 +438,43 @@ if (typeof document !== 'undefined') (function(){
     const have = R._pillars.filter(p => me.p[p.id] != null).sort((a, b) => me.p[b.id] - me.p[a.id]);
     const wins = have.slice(0, 2), losses = have.slice(-2).reverse();
     const names = l => l.map(p => p.name.toUpperCase() + ' (' + Math.round(me.p[p.id]) + ')').join(' · ');
+    const pv = j._prev && j._prev.rating[S.country];
+    const nRanked = Object.values(j.ranks).filter(rk => rk.map[S.country]).length;
     $('overall').innerHTML =
       `<div class="cap">WORKING-CLASS RATING</div><div class="num">${me.value}</div>` +
-      `<div class="rk"><b>${ord(me.rank)}</b> of ${R._n} nations` +
+      `<div class="rk"><b>${ord(me.rank)}</b> of ${R._n} nations${rankDelta(pv, me.rank)}` +
+      (pv != null && pv !== me.rank ? ` since ${j._prev.date}` : '') +
       (cp ? ` · ${S.compare} ${cp.value}, ${ord(cp.rank)}` : '') + `</div>` +
+      (cp ? (() => { // pillar-by-pillar tally against the compare country
+        const shared = R._pillars.filter(p => me.p[p.id] != null && cp.p[p.id] != null);
+        const w = shared.filter(p => Math.round(me.p[p.id]) > Math.round(cp.p[p.id])).length;
+        const l = shared.filter(p => Math.round(me.p[p.id]) < Math.round(cp.p[p.id])).length;
+        return `<div class="rk vs"><span class="${w > l ? 'up' : l > w ? 'dn' : ''}">` +
+          `${w > l ? 'LEADS' : l > w ? 'TRAILS' : 'SPLITS WITH'} ${countryNames[S.compare] || S.compare}` +
+          `</span> — WINS ${w}, LOSES ${l}${shared.length - w - l ? `, TIES ${shared.length - w - l}` : ''} OF ${shared.length} PILLARS</div>`;
+      })() : '') +
       `<div class="lead">WINS AT ${names(wins)}<br>LOSES AT ${names(losses)}<br><br>` +
-      `SCORE = MEAN PERCENTILE ACROSS SIX PILLARS · EACH PILLAR = MEAN PERCENTILE OF ITS INPUTS · ` +
-      R._top.map(t => t[0] + ' ' + t[1]).join(' · ') + ` LEAD · ${R._bottom[0]} LAST AT ${R._bottom[1]}</div>`;
+      `SCORE = MEAN PERCENTILE ACROSS ${R._pillars.length} PILLARS · EACH PILLAR = MEAN PERCENTILE OF ITS INPUTS · ` +
+      R._top.map(t => t[0] + ' ' + t[1]).join(' · ') + ` LEAD · ${R._bottom[0]} LAST AT ${R._bottom[1]}` +
+      `<br>RANKED IN ${nRanked} OF ${Object.keys(j.ranks).length} METRICS · DATA AS OF ${j._date || '—'}</div>`;
     const ph = $('pillars');
     ph.innerHTML = '';
     for (const p of R._pillars){
       if (me.p[p.id] == null) continue;
       const row = document.createElement('div');
       row.className = 'pillar';
-      const tone = wins.includes(p) ? 'good' : losses.includes(p) ? 'bad' : '';
+      const cv = cp && cp.p[p.id] != null ? cp.p[p.id] : null;
+      // comparing: tone marks who wins this pillar; alone: tone marks this country's own best/worst
+      const d = cv != null ? Math.round(me.p[p.id]) - Math.round(cv) : 0;
+      const tone = cv != null ? (d > 0 ? 'good' : d < 0 ? 'bad' : '')
+                 : wins.includes(p) ? 'good' : losses.includes(p) ? 'bad' : '';
       row.innerHTML = `<div class="pname">${p.name}<small>${p.note} — ${p.srcs}</small></div>`;
-      row.appendChild(tenStrip(me.p[p.id] / 10));
+      const strip = tenStrip(me.p[p.id] / 10);
+      if (cv != null) strip.insertAdjacentHTML('beforeend',
+        `<i class="cmark" style="left:${cv.toFixed(1)}%" title="${S.compare} ${Math.round(cv)}"></i>`);
+      row.appendChild(strip);
       row.insertAdjacentHTML('beforeend', `<div class="pval"><span class="${tone}">${Math.round(me.p[p.id])}</span>` +
-        (cp && cp.p[p.id] != null ? `<small>${S.compare} ${Math.round(cp.p[p.id])}</small>` : '') + `</div>`);
+        (cv != null ? `<small>${S.compare} ${Math.round(cv)} · <span class="${d > 0 ? 'up' : d < 0 ? 'dn' : ''}">${d > 0 ? '+' : ''}${d}</span></small>` : '') + `</div>`);
       ph.appendChild(row);
     }
   }
@@ -389,10 +495,17 @@ if (typeof document !== 'undefined') (function(){
     const key = S.rkMetric || 'rating', worst = S.rkDir === 'worst';
     const q = $('rkFilter').value.trim().toLowerCase();
     let rows, n, note;
+    const prev = (j._prev && (key === 'rating' ? j._prev.rating : j._prev.ranks[key])) || {};
     if (key === 'rating'){
       n = j.rating._n; note = 'best for the working class first';
       rows = Object.entries(j.rating).filter(([k]) => !k.startsWith('_'))
         .map(([iso, r]) => ({ iso, rank: r.rank, str: r.value.toFixed(1) }));
+    } else if (key.startsWith('p:')){ // a rating pillar, ranked by its percentile score
+      const id = key.slice(2), P = j.rating._pillars.find(p => p.id === id);
+      const es = Object.entries(j.rating).filter(([k, r]) => !k.startsWith('_') && r.p[id] != null)
+        .sort((a, b) => b[1].p[id] - a[1].p[id]);
+      n = es.length; note = P.name.toLowerCase() + ' — ' + P.note;
+      rows = es.map(([iso, r], i) => ({ iso, rank: i + 1, str: r.p[id].toFixed(1) }));
     } else {
       const rk = j.ranks[key], m = METRICS.find(x => x.rank === key);
       if (!rk) return;
@@ -407,8 +520,8 @@ if (typeof document !== 'undefined') (function(){
     for (const r of rows){
       const row = document.createElement('button');
       row.className = 'rkrow' + (r.iso === S.country ? ' me' : r.iso === S.compare ? ' iscmp' : '');
-      row.innerHTML = `<span class="rkn">${r.rank}</span><span class="rkc">${countryNames[r.iso] || r.iso}</span>` +
-        `<span class="rkv">${r.str}</span>`;
+      row.innerHTML = `<span class="rkn">${r.rank}${rankDelta(prev[r.iso], r.rank)}</span>` +
+        `<span class="rkc">${countryNames[r.iso] || r.iso}</span><span class="rkv">${r.str}</span>`;
       row.appendChild(tenStrip((n - r.rank) / n * 10));
       row.onclick = () => {
         S.country = r.iso; save();
@@ -423,6 +536,12 @@ if (typeof document !== 'undefined') (function(){
     sel.innerHTML = '<option value="rating">Working-class rating</option>' +
       METRICS.filter(m => m.rank).map(m => `<option value="${m.rank}">${m.name}</option>`).join('');
     sel.value = S.rkMetric || 'rating';
+    localData('derived.json').then(j => { // pillars come from the data, not METRICS
+      if (!(j && j.rating)) return;
+      sel.options[0].insertAdjacentHTML('afterend',
+        j.rating._pillars.map(p => `<option value="p:${p.id}">Pillar: ${p.name}</option>`).join(''));
+      if (S.rkMetric) sel.value = S.rkMetric;
+    });
     sel.onchange = () => { S.rkMetric = sel.value; save(); renderRank(); };
     const dir = $('rkDir');
     dir.value = S.rkDir || 'best';
@@ -504,6 +623,7 @@ if (typeof document !== 'undefined') (function(){
       localStorage.setItem('countries', JSON.stringify(list));
     }
     countryNames = Object.fromEntries(list);
+    list.sort((a, b) => a[1].localeCompare(b[1])); // WB returns iso2-code order — UK sat in the G's
     const opts = list.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
     const sel = $('country'), cmp = $('compare');
     sel.innerHTML = opts;

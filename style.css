@@ -7,6 +7,22 @@
   --mauve:#cba6f7; --red:#f38ba8; --yellow:#f9e2af; --green:#a6e3a1;
   --teal:#94e2d5; --sapphire:#74c7ec; --blue:#89b4fa;
 }
+[data-theme=macchiato]{
+  --crust:#181926; --mantle:#1e2030; --base:#24273a;
+  --surface0:#363a4f; --surface1:#494d64; --surface2:#5b6078;
+  --overlay0:#6e738d; --overlay1:#8087a2;
+  --subtext0:#a5adcb; --subtext1:#b8c0e0; --text:#cad3f5;
+  --mauve:#c6a0f6; --red:#ed8796; --yellow:#eed49f; --green:#a6da95;
+  --teal:#8bd5ca; --sapphire:#7dc4e4; --blue:#8aadf4;
+}
+[data-theme=frappe]{
+  --crust:#232634; --mantle:#292c3c; --base:#303446;
+  --surface0:#414559; --surface1:#51576d; --surface2:#626880;
+  --overlay0:#737994; --overlay1:#838ba7;
+  --subtext0:#a5adce; --subtext1:#b5bfe2; --text:#c6d0f5;
+  --mauve:#ca9ee6; --red:#e78284; --yellow:#e5c890; --green:#a6d189;
+  --teal:#81c8be; --sapphire:#85c1dc; --blue:#8caaee;
+}
 [data-theme=latte]{
   --crust:#dce0e8; --mantle:#e6e9ef; --base:#eff1f5;
   --surface0:#ccd0da; --surface1:#bcc0cc; --surface2:#acb0be;
@@ -54,6 +70,13 @@ button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px soli
 
 /* isotype masthead + rating band */
 .mast{max-width:1240px; margin:0 auto; padding:1.6rem 1.3rem .2rem}
+.mhead{display:flex; justify-content:space-between; align-items:flex-end; gap:1.5rem}
+#cmap{display:flex; align-items:flex-end; gap:1.2rem}
+#cmap svg{display:block}
+#cmap path{fill:var(--accent); fill-opacity:.06; stroke:var(--accent); stroke-width:1; vector-effect:non-scaling-stroke}
+#cmap .cmpmap path{fill:var(--cmp); fill-opacity:.05; stroke:var(--cmp)}
+.up{color:var(--good)} .dn{color:var(--bad)}
+@media (max-width:640px){ #cmap{display:none} }
 .mast .eyebrow{font-size:.66rem; letter-spacing:.3em; color:var(--accent); font-weight:600; font-family:Jost,sans-serif; text-transform:uppercase}
 .mast h2{font-family:Jost,sans-serif; font-size:clamp(1.8rem,4.5vw,3rem); font-weight:600; letter-spacing:.02em; text-transform:uppercase; line-height:1; margin:.2rem 0; text-wrap:balance}
 .vsline{font-size:.74rem; color:var(--dim); margin:0}
@@ -74,12 +97,12 @@ button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px soli
 .pillar .pval .good{color:var(--good)}
 .pillar .pval .bad{color:var(--bad)}
 
-/* unit squares — quantity by repetition, grouped in fives */
-.units{display:flex; flex-wrap:nowrap; gap:2px 6px; align-items:center}
-.units .g{display:flex; gap:2px; flex:none}
-.units i{display:block; width:8px; height:8px; background:var(--unit); flex:none}
-.units .part{overflow:hidden; flex:none; display:block}
-.units .rest i{background:var(--surface0)}
+/* ten-cell gauge — segmented bar, accent fill over a solid track */
+.ten{display:flex; gap:2px; align-items:center; flex:none; position:relative}
+.ten i{display:block; width:9px; height:10px; background:var(--surface1); flex:none}
+.ten i.on{background:var(--unit)}
+.ten .cmark{position:absolute; top:-3px; bottom:-3px; width:2px; height:auto; background:var(--cmp)} /* compare country's position on the strip */
+.rk.vs{font-size:.7rem; margin-top:.15rem}
 
 /* category folders + metric cards */
 #grid{max-width:1240px; margin:0 auto; padding:0 1.3rem 1.5rem}
@@ -104,6 +127,7 @@ button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px soli
 .card:hover .resize{opacity:1}
 .chip{background:none; border:1px solid var(--surface1); color:var(--dim); font-size:.58rem; padding:.12rem .4rem; letter-spacing:.05em; white-space:nowrap; max-width:11rem; overflow:hidden; text-overflow:ellipsis}
 .chip:hover:not(:disabled){border-color:var(--accent); color:var(--accent)}
+.chip.old{border-color:var(--yellow); color:var(--yellow)} /* data ≥5 years old */
 .chip:disabled{cursor:default}
 .cval{display:flex; align-items:baseline; gap:.7rem; min-height:1.3rem}
 .cval .value{font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums}
@@ -134,7 +158,7 @@ input[type=search]{background:var(--panel); border:1px solid var(--line); color:
 .rkrow.iscmp{border-left:3px solid var(--cmp)}
 .rkn{color:var(--faint); font-variant-numeric:tabular-nums}
 .rkv{font-weight:600; font-variant-numeric:tabular-nums; text-align:right}
-@media (max-width:640px){ .rkrow{grid-template-columns:2.6rem 1fr auto} .rkrow .units{display:none} }
+@media (max-width:640px){ .rkrow{grid-template-columns:2.6rem 1fr auto} .rkrow .ten{display:none} }
 
 footer{max-width:1240px; margin:0 auto; padding:.6rem 1.3rem 1.6rem; color:var(--faint); font-size:.62rem; letter-spacing:.05em; line-height:1.9}
 footer .u{color:var(--unit)}
